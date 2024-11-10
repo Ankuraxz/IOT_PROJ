@@ -1,4 +1,5 @@
 RPi.GPIO
-Adafruit_DHT
+pyserial
 gpsd-py3
-azure-storage-queue 
+azure-storage-queue
+smbus2

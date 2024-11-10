@@ -126,7 +126,7 @@ def prepare_document_for_cosmos_db(data:str):
                     collection_name="sensordata",
                     create_if_not_exists=True,
                     connection_string_setting="COSMOS_DB_CONNECTION_STRING") 
-def iot_queue_trigger(msg: func.QueueMessage, document: func.Out[func.Document]):
+def iot_queue_trigger(msg: func.QueueMessage, documents: func.Out[func.Document]):
     msg = msg.get_body().decode('utf-8')
     print(f"Message: {msg}")
     document = prepare_document_for_cosmos_db(msg)

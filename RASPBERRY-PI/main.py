@@ -13,8 +13,8 @@ Connect SDA on the MPU-9250 to SDA (I2C1 SDA, GPIO 2) on the Raspberry Pi.
 '''
 
 # Initialize the serial port for GPS (assuming Neo-6 GPS is connected via serial)
-gps_port = "/dev/ttyAMA0"  # Adjust as needed for your setup
-gps_serial = serial.Serial(gps_port, baudrate=9600, timeout=1)
+# gps_port = "/dev/ttyAMA0"  # Adjust as needed for your setup
+# gps_serial = serial.Serial(gps_port, baudrate=9600, timeout=1)
 
 queue_service_url = "https://sensorstoragequeue.queue.core.windows.net/sensor-data-queue"
 storage_account_name = "sensorstoragequeue"
@@ -101,17 +101,19 @@ def read_flame_sensor():
     return GPIO.input(FLAME_SENSOR_PIN)
 
 def read_shock_sensor():
-    return GPIO.input(SHOCK_SENSOR_PIN)
+    return 1 - GPIO.input(SHOCK_SENSOR_PIN)
 
 def read_alcohol_sensor():
     return GPIO.input(ALCOHOL_SENSOR_PIN)
 
 def read_button_sensor():
-    return GPIO.input(BUTTON_SENSOR_PIN)
+    return 1 - GPIO.input(BUTTON_SENSOR_PIN)
 
 def put_data_in_queue(data:list):
     try:
-        queue_service_client.send_message(''.join(data))
+        data_str = str(','.join(map(str,data)))
+        print(type(data_str))
+        queue_service_client.send_message(data_str)
         print("Data added to the queue")
     except Exception as e:
         print("Failed to add data to the queue")
@@ -167,6 +169,9 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
         print("Program stopped by user")
+    except Exception as e:
+        print(e)
 
     finally:
         GPIO.cleanup()
+
