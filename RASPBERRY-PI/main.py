@@ -3,8 +3,7 @@ import Adafruit_DHT
 import RPi.GPIO as GPIO
 import serial
 import os, uuid
-from azure.identity import DefaultAzureCredential
-from azure.storage.queue import QueueServiceClient, QueueClient, QueueMessage, BinaryBase64DecodePolicy, BinaryBase64EncodePolicy
+from azure.storage.queue import QueueClient
 
 # Initialize the serial port for GPS (assuming Neo-6 GPS is connected via serial)
 gps_port = "/dev/ttyAMA0"  # Adjust as needed for your setup
@@ -124,7 +123,7 @@ if __name__ == "__main__":
             print(f"Button Sensor - Pressed: {'Yes' if button_pressed == 1 else 'No'}")
 
             # Delay between readings
-            put_data_in_queue([(lat, lon, alt), (temp, hum), flame_detected, shock_detected, alcohol_detected, button_pressed])
+            put_data_in_queue([[lat, lon, alt], [temp, hum], flame_detected, shock_detected, alcohol_detected, button_pressed])
             time.sleep(1)  # Adjust delay as needed
 
     except KeyboardInterrupt:

@@ -2,4 +2,3 @@ RPi.GPIO
 Adafruit_DHT
 gpsd-py3
 azure-storage-queue 
-azure-identity
