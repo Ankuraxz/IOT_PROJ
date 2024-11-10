@@ -1,5 +1,4 @@
 import time
-import Adafruit_DHT
 import RPi.GPIO as GPIO
 import serial
 import os, uuid
@@ -29,7 +28,7 @@ except Exception as e:
     print(e)
 
 # DHT sensor setup
-DHT_SENSOR = Adafruit_DHT.DHT22  # Assuming DHT22; use DHT11 if applicable
+# DHT_SENSOR = Adafruit_DHT.DHT11  # Assuming DHT22; use DHT11 if applicable
 DHT_PIN = 4                      # GPIO pin for DHT sensor data
 
 # GPIO setup for other sensors
@@ -75,27 +74,28 @@ def read_mpu9250():
     gyro_z = read_raw_data(GYRO_XOUT_H + 4) / 131.0
     return acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z
 
-def read_gps():
-    gps_serial.flushInput()
-    if gps_serial.inWaiting() > 0:
-        gps_data = gps_serial.readline().decode('ascii', errors='replace')
-        if gps_data.startswith("$GPGGA"):
-            gps_parts = gps_data.split(',')
-            try:
-                lat = float(gps_parts[2]) / 100
-                lon = float(gps_parts[4]) / 100
-                alt = float(gps_parts[9])
-                return lat, lon, alt
-            except (ValueError, IndexError):
-                return None
-    return None
+# def read_gps():
+#     gps_serial.flushInput()
+#     if gps_serial.inWaiting() > 0:
+#         gps_data = gps_serial.readline().decode('ascii', errors='replace')
+#         if gps_data.startswith("$GPGGA"):
+#             gps_parts = gps_data.split(',')
+#             try:
+#                 lat = float(gps_parts[2]) / 100
+#                 lon = float(gps_parts[4]) / 100
+#                 alt = float(gps_parts[9])
+#                 return lat, lon, alt
+#             except (ValueError, IndexError):
+#                 return None
+#     return None
 
 def read_dht():
-    humidity, temperature = Adafruit_DHT.read(DHT_SENSOR, DHT_PIN)
-    if humidity is not None and temperature is not None:
-        return temperature, humidity
-    else:
-        return None, None
+    # humidity, temperature = Adafruit_DHT.read(DHT_SENSOR, DHT_PIN)
+    # if humidity is not None and temperature is not None:
+    #     return temperature, humidity
+    # else:
+    #     return None, None
+    return 25.0, 50.0  # Dummy data for testing
 
 def read_flame_sensor():
     return GPIO.input(FLAME_SENSOR_PIN)
@@ -124,12 +124,13 @@ if __name__ == "__main__":
     try:
         while True:
             # GPS data
-            gps_data = read_gps()
-            if gps_data:
-                lat, lon, alt = gps_data
-                print(f"GPS - Latitude: {lat}, Longitude: {lon}, Altitude: {alt}m")
-            else:
-                print("GPS - No data")
+            # gps_data = read_gps()
+            # if gps_data:
+            #     lat, lon, alt = gps_data
+            #     print(f"GPS - Latitude: {lat}, Longitude: {lon}, Altitude: {alt}m")
+            # else:
+            #     print("GPS - No data")
+            lat, lon, alt = 28.7041, 77.1025, 200
 
             # DHT sensor data
             temp, hum = read_dht()
