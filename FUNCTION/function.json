@@ -1,0 +1,22 @@
+{
+    "scriptFile": "function_app.py",
+    "bindings": [
+      {
+        "name": "msg",
+        "type": "queueTrigger",
+        "direction": "in",
+        "queueName": "sensorstoragequeue",
+        "connection": "AZURE_STORAGE_CONNECTION_STRING"
+      },
+      {
+        "name": "documents",
+        "type": "cosmosDB",
+        "direction": "out",
+        "databaseName": "iotsensorbackup",
+        "collectionName": "sensordata",
+        "createIfNotExists": true,
+        "connectionStringSetting": "COSMOS_DB_CONNECTION_STRING"
+      }
+    ]
+  }
+  

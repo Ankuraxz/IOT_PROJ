@@ -1,4 +1,0 @@
-azure-storage-queue 
-azure-cosmos
-azure-identity
-azure-functions

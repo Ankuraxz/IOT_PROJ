@@ -1,12 +1,16 @@
+
+import logging
 import os
 import uuid
 from azure.storage.queue import QueueClient
 from azure.identity import DefaultAzureCredential
 from azure.cosmos import CosmosClient
 import azure.functions as func
+import urllib3
+import json
+
+
 app = func.FunctionApp()
-
-
 
 #QUEUE
 queue_service_url = "https://sensorstoragequeue.queue.core.windows.net/sensor-data-queue"
@@ -23,6 +27,7 @@ except Exception as e:
 #COSMOS
 cosmos_uri = "https://iot-sensor-data.documents.azure.com:443/"
 cosmos_connection_string = os.getenv('COSMOS_DB_CONNECTION_STRING')
+
 
 try:
     cosmos_client = CosmosClient.from_connection_string(cosmos_connection_string)
@@ -42,11 +47,32 @@ except Exception as e:
 #         queue_service_client.delete_message(message)
 #         return message.content
 
+novu_key = os.getenv('NOVU_KEY')
+
 def notify_with_novu(message:str):
-    pass
+    url = 'https://api.novu.co/v1/events/trigger'
+    headers = {
+        'Authorization': 'ApiKey ' + novu_key,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    data = {
+        "name": "emailerworkflow",
+        "to":{
+            "subscriberId": str(uuid.uuid4()),
+            "email": "ankurvermaaxz@gmail.com"
+        },
+        "payload": ({'Message': f"Hi User ! Alert for {message} ",})
+    }
+    http = urllib3.PoolManager()
+    encoded_data = json.dumps(data).encode('utf-8')
+    response = http.request('POST', url, headers=headers, body=encoded_data)
+
+    return response
 
 def prepare_document_for_cosmos_db(data:str):
-    #sample data - [(lat, lon, alt), (temp, hum), flame_detected, shock_detected, alcohol_detected, button_pressed]
+    #sample data - [[lat, lon, alt], [temp, hum], flame_detected, shock_detected, alcohol_detected, button_pressed, [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]]
+
     data_list = data.split(',')
     document = {
         "id": str(uuid.uuid4()),
@@ -59,7 +85,19 @@ def prepare_document_for_cosmos_db(data:str):
         "flame_detected": bool(data_list[2]),
         "shock_detected": bool(data_list[3]),
         "alcohol_detected": bool(data_list[4]),
-        "button_pressed": bool(data_list[5])
+        "button_pressed": bool(data_list[5]),
+        "accelerometer": {
+            "type": "Point",
+            "x": float(data_list[6][0]),
+            "y": float(data_list[6][1]),
+            "z": float(data_list[6][2])
+        },
+        "gyroscope": {
+            "type": "Point",
+            "x": float(data_list[6][3]),
+            "y": float(data_list[6][4]),
+            "z": float(data_list[6][5])
+        }
     }
 
     if document["flame_detected"]:
@@ -76,32 +114,29 @@ def prepare_document_for_cosmos_db(data:str):
         notify_with_novu("High temperature!")
     elif document["humidity"] > 80:
         notify_with_novu("High humidity!")
+    elif document["accelerometer"]["x"] > 3 or document["accelerometer"]["y"] > 3 or document["accelerometer"]["z"] > 3:
+        notify_with_novu("High acceleration!")
 
     return document
 
-# def send_data_to_cosmos_db(document:dict):
-#     try:
-#         container.upsert_item(document)
-#         print("Data added to the Cosmos DB")
-#     except Exception as e:
-#         print("Failed to add data to the Cosmos DB")
-#         print(e)
-
-
-@app.function_name(name="QueueFunc")
-@app.queue_trigger(arg_name="msg", queue_name=storage_account_name, connection=queue_connection_string)
-@app.cosmos_db_output(arg_name="documents", 
-                    database_name="iotsensorbackup",
-                    collection_name="sensordata",
-                    create_if_not_exists=True,
-                    connection_string_setting=cosmos_connection_string)
-def main(msg: func.QueueMessage, outputDocument: func.Out[func.Document])->None:
-    msg = msg.get_body().decode('utf-8')
-    print(f"Message: {msg}")
-    document = prepare_document_for_cosmos_db(msg)
-    outputDocument.set(func.Document.from_json(document))
-
-
-
-
-    
+if __name__ == "__main__":
+    @app.queue_trigger(
+    arg_name="msg",
+    queue_name="sensorstoragequeue",
+    connection="AZURE_STORAGE_CONNECTION_STRING"
+    )
+    @app.cosmos_db_output(
+        arg_name="documents",
+        database_name="iotsensorbackup",
+        collection_name="sensordata",
+        create_if_not_exists=True,
+        connection_string_setting="COSMOS_DB_CONNECTION_STRING"
+    )
+    def main(msg: func.QueueMessage, documents: func.Out[func.Document]):
+        logging.info('Python queue trigger function processed a queue item: %s',
+                     msg.get_body().decode('utf-8'))
+        msg = msg.get_body().decode('utf-8')
+        print(f"Message: {msg}")
+        document = prepare_document_for_cosmos_db(msg)
+        documents.set(func.Document.from_json(document))
+        
