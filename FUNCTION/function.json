@@ -2,10 +2,10 @@
     "scriptFile": "function_app.py",
     "bindings": [
       {
-        "name": "msg",
+        "name": "azqueue",
         "type": "queueTrigger",
         "direction": "in",
-        "queueName": "sensorstoragequeue",
+        "queueName": "sensor-data-queue",
         "connection": "AZURE_STORAGE_CONNECTION_STRING"
       },
       {

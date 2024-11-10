@@ -12,44 +12,46 @@ import json
 
 app = func.FunctionApp()
 
-#QUEUE
-queue_service_url = "https://sensorstoragequeue.queue.core.windows.net/sensor-data-queue"
-storage_account_name = "sensorstoragequeue"
-queue_connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
+# #QUEUE
+# queue_service_url = "https://sensorstoragequeue.queue.core.windows.net/sensor-data-queue"
+# storage_account_name = "sensorstoragequeue"
+# queue_connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
 
-try:
-    queue_service_client = QueueClient.from_connection_string(queue_connection_string, "sensor-data-queue")
-    print("Successfully connected to the Azure Storage Queue")
-except Exception as e:
-    print("Failed to connect to the Azure Storage Queue")
-    print(e)
+# try:
+#     queue_service_client = QueueClient.from_connection_string(queue_connection_string, "sensor-data-queue")
+#     print("Successfully connected to the Azure Storage Queue")
+# except Exception as e:
+#     print("Failed to connect to the Azure Storage Queue")
+#     print(e)
 
-#COSMOS
-cosmos_uri = "https://iot-sensor-data.documents.azure.com:443/"
-cosmos_connection_string = os.getenv('COSMOS_DB_CONNECTION_STRING')
-
-
-try:
-    cosmos_client = CosmosClient.from_connection_string(cosmos_connection_string)
-    database = cosmos_client.get_database_client('iotsensorbackup')
-    container = database.get_container_client('sensordata')
-    print("Successfully connected to the Azure Cosmos DB")
-except Exception as e:
-    print("Failed to connect to the Azure Cosmos DB")
-    print(e)
+# #COSMOS
+# cosmos_uri = "https://iot-sensor-data.documents.azure.com:443/"
+# cosmos_connection_string = os.getenv('COSMOS_DB_CONNECTION_STRING')
 
 
+# try:
+#     cosmos_client = CosmosClient.from_connection_string(cosmos_connection_string)
+#     database = cosmos_client.get_database_client('iotsensorbackup')
+#     container = database.get_container_client('sensordata')
+#     print("Successfully connected to the Azure Cosmos DB")
+# except Exception as e:
+#     print("Failed to connect to the Azure Cosmos DB")
+#     print(e)
 
-# def read_and_delete_messages() -> str:
-#     messages = queue_service_client.receive_messages(max_messages=1)
-#     for message in messages:
-#         print("Message: " + message.content)
-#         queue_service_client.delete_message(message)
-#         return message.content
 
-novu_key = os.getenv('NOVU_KEY')
+
+# # def read_and_delete_messages() -> str:
+# #     messages = queue_service_client.receive_messages(max_messages=1)
+# #     for message in messages:
+# #         print("Message: " + message.content)
+# #         queue_service_client.delete_message(message)
+# #         return message.content
+
+
 
 def notify_with_novu(message:str):
+    novu_key = os.getenv('NOVU_KEY')
+
     url = 'https://api.novu.co/v1/events/trigger'
     headers = {
         'Authorization': 'ApiKey ' + novu_key,
@@ -121,8 +123,8 @@ def prepare_document_for_cosmos_db(data:str):
 
 if __name__ == "__main__":
     @app.queue_trigger(
-    arg_name="msg",
-    queue_name="sensorstoragequeue",
+    arg_name="azqueue",
+    queue_name="sensor-data-queue",
     connection="AZURE_STORAGE_CONNECTION_STRING"
     )
     @app.cosmos_db_output(
@@ -132,11 +134,17 @@ if __name__ == "__main__":
         create_if_not_exists=True,
         connection_string_setting="COSMOS_DB_CONNECTION_STRING"
     )
-    def main(msg: func.QueueMessage, documents: func.Out[func.Document]):
-        logging.info('Python queue trigger function processed a queue item: %s',
-                     msg.get_body().decode('utf-8'))
-        msg = msg.get_body().decode('utf-8')
-        print(f"Message: {msg}")
-        document = prepare_document_for_cosmos_db(msg)
-        documents.set(func.Document.from_json(document))
+    def main(azqueue: func.QueueMessage, documents: func.Out[func.Document]):
+        try:
+            logging.info('Python queue trigger function processed a queue item: %s', azqueue.get_body().decode('utf-8'))
+            msg = azqueue.get_body().decode('utf-8')
+            print(f"Message: {msg}")
+            document = prepare_document_for_cosmos_db(msg)
+            documents.set(func.Document.from_json(document))
+            logging.info('Document added to Cosmos DB')
+        except Exception as e:
+            print(e)
+            logging.error(e)
+            logging.error('Failed to process the message')
+            pass
         
