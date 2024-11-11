@@ -2,8 +2,11 @@ import time
 import RPi.GPIO as GPIO
 import serial
 import os, uuid
-from azure.storage.queue import QueueClient
+from azure.cosmos import CosmosClient
 import smbus2
+import urllib3
+import json
+import pynmea2
 
 '''
 Connect VCC on the MPU-9250 to the 3.3V pin on the Raspberry Pi.
@@ -13,19 +16,25 @@ Connect SDA on the MPU-9250 to SDA (I2C1 SDA, GPIO 2) on the Raspberry Pi.
 '''
 
 # Initialize the serial port for GPS (assuming Neo-6 GPS is connected via serial)
-# gps_port = "/dev/ttyAMA0"  # Adjust as needed for your setup
-# gps_serial = serial.Serial(gps_port, baudrate=9600, timeout=1)
+gps_port = "/dev/ttyAMA0"  # Adjust as needed for your setup
+gps_serial = serial.Serial(gps_port, baudrate=9600, timeout=1)
+dataout = pynmea2.NMEAStreamReader()
 
-queue_service_url = "https://sensorstoragequeue.queue.core.windows.net/sensor-data-queue"
-storage_account_name = "sensorstoragequeue"
-queue_connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
+# queue_service_url = "https://sensorstoragequeue.queue.core.windows.net/sensor-data-queue"
+# storage_account_name = "sensorstoragequeue"
+# queue_connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
 
-try:
-    queue_service_client = QueueClient.from_connection_string(queue_connection_string, "sensor-data-queue")
-    print("Successfully connected to the Azure Storage Queue")
-except Exception as e:
-    print("Failed to connect to the Azure Storage Queue")
-    print(e)
+# try:
+#     queue_service_client = QueueClient.from_connection_string(queue_connection_string, "sensor-data-queue")
+#     print("Successfully connected to the Azure Storage Queue")
+# except Exception as e:
+#     print("Failed to connect to the Azure Storage Queue")
+#     print(e)
+
+cosmos_connection_string = os.getenv('COSMOS_CONNECTION_STRING')
+cosmos_client = CosmosClient.from_connection_string(cosmos_connection_string)
+database = cosmos_client.get_database_client('iotsensorbackup')
+container = database.get_container_client('sensordata')
 
 # DHT sensor setup
 # DHT_SENSOR = Adafruit_DHT.DHT11  # Assuming DHT22; use DHT11 if applicable
@@ -74,28 +83,24 @@ def read_mpu9250():
     gyro_z = read_raw_data(GYRO_XOUT_H + 4) / 131.0
     return acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z
 
-# def read_gps():
-#     gps_serial.flushInput()
-#     if gps_serial.inWaiting() > 0:
-#         gps_data = gps_serial.readline().decode('ascii', errors='replace')
-#         if gps_data.startswith("$GPGGA"):
-#             gps_parts = gps_data.split(',')
-#             try:
-#                 lat = float(gps_parts[2]) / 100
-#                 lon = float(gps_parts[4]) / 100
-#                 alt = float(gps_parts[9])
-#                 return lat, lon, alt
-#             except (ValueError, IndexError):
-#                 return None
-#     return None
+def read_gps():
+    try:
+        newdata = gps_serial.readline()
+        if newdata[0:6] == b'$GPGGA':
+            newmsg = pynmea2.parse(newdata.decode('utf-8'))
+            print(f"GPS MESSAGE: {newmsg}")
+            # lat = newmsg.latitude
+            # lon = newmsg.longitude
+            # alt = newmsg.altitude
+            # return newmsg.latitude, newmsg.longitude, newmsg.altitude
+            return 28.7041, 77.1025, 200
+    except Exception as e:
+        print("Failed to read GPS data")
+    return None
 
 def read_dht():
-    # humidity, temperature = Adafruit_DHT.read(DHT_SENSOR, DHT_PIN)
-    # if humidity is not None and temperature is not None:
-    #     return temperature, humidity
-    # else:
-    #     return None, None
-    return 25.0, 50.0  # Dummy data for testing
+    return 25, 50  # Placeholder for DHT sensor data
+
 
 def read_flame_sensor():
     return GPIO.input(FLAME_SENSOR_PIN)
@@ -109,14 +114,84 @@ def read_alcohol_sensor():
 def read_button_sensor():
     return 1 - GPIO.input(BUTTON_SENSOR_PIN)
 
-def put_data_in_queue(data:list):
+def notify_with_novu(message:str):
     try:
-        data_str = str(','.join(map(str,data)))
-        print(type(data_str))
-        queue_service_client.send_message(data_str)
-        print("Data added to the queue")
+        novu_key = os.getenv('NOVU_KEY')
+
+        url = 'https://api.novu.co/v1/events/trigger'
+        headers = {
+            'Authorization': 'ApiKey ' + novu_key,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+        data = {
+            "name": "emailerworkflow",
+            "to":{
+                "subscriberId": str(uuid.uuid4()),
+                "email": "ankurvermaaxz@gmail.com"
+            },
+            "payload": ({'Message': f"Hi User ! Alert for {message} ",})
+        }
+        http = urllib3.PoolManager()
+        encoded_data = json.dumps(data).encode('utf-8')
+        response = http.request('POST', url, headers=headers, body=encoded_data)
+
+        return response
     except Exception as e:
-        print("Failed to add data to the queue")
+        print("Failed to send notification to Novu")
+        pass
+
+def put_data_in_cosmos(data:list):
+    try:
+        document = {
+            "id": str(uuid.uuid4()),
+            "location": {
+                "type": "Point",
+                "coordinates": [float(data[0][0]), float(data[0][1]), float(data[0][2])]
+            },
+            "temperature": float(data[1][0]),
+            "humidity": float(data[1][1]),
+            "flame_detected": bool(data[2]),
+            "shock_detected": bool(data[3]),
+            "alcohol_detected": bool(data[4]),
+            "button_pressed": bool(data[5]),
+            "accelerometer": {
+                "type": "Point",
+                "x": float(data[6][0]),
+                "y": float(data[6][1]),
+                "z": float(data[6][2])
+            },
+            "gyroscope": {
+                "type": "Point",
+                "x": float(data[6][3]),
+                "y": float(data[6][4]),
+                "z": float(data[6][5])
+            }
+        }
+
+        container.upsert_item(document)
+        print("Data added to the Cosmos")
+
+        # Notifications for specific conditions
+        if document["flame_detected"]:
+            notify_with_novu("Flame detected!")
+        elif document["shock_detected"]:
+            notify_with_novu("Shock detected!")
+        elif document["alcohol_detected"]:
+            notify_with_novu("Alcohol detected!")
+        elif document["button_pressed"]:
+            notify_with_novu("Button pressed!")
+        elif document["location"]["coordinates"] == [0, 0, 0]:
+            notify_with_novu("No GPS signal!")
+        elif document["temperature"] > 40:
+            notify_with_novu("High temperature!")
+        elif document["humidity"] > 80:
+            notify_with_novu("High humidity!")
+        elif document["accelerometer"]["x"] > 3 or document["accelerometer"]["y"] > 3 or document["accelerometer"]["z"] > 3:
+            notify_with_novu("High acceleration!")
+        return document
+    except Exception as e:
+        print("Failed to add data to the db")
         print(e)
 
 # Initialize MPU-9250
@@ -126,13 +201,8 @@ if __name__ == "__main__":
     try:
         while True:
             # GPS data
-            # gps_data = read_gps()
-            # if gps_data:
-            #     lat, lon, alt = gps_data
-            #     print(f"GPS - Latitude: {lat}, Longitude: {lon}, Altitude: {alt}m")
-            # else:
-            #     print("GPS - No data")
-            lat, lon, alt = 28.7041, 77.1025, 200
+            lat, lon, alt = read_gps()
+            print(f"GPS - Latitude: {lat}, Longitude: {lon}, Altitude: {alt}")
 
             # DHT sensor data
             temp, hum = read_dht()
@@ -163,7 +233,7 @@ if __name__ == "__main__":
             print(f"MPU-9250 - Gyro X: {gyro_x:.2f} °/s, Y: {gyro_y:.2f} °/s, Z: {gyro_z:.2f} °/s")
 
             # Send data to Azure Queue
-            put_data_in_queue([[lat, lon, alt], [temp, hum], flame_detected, shock_detected, alcohol_detected, button_pressed, [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]])
+            put_data_in_cosmos([[lat, lon, alt], [temp, hum], flame_detected, shock_detected, alcohol_detected, button_pressed, [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]])
             
             time.sleep(1)  # Adjust delay as needed
 
